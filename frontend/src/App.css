@@ -167,7 +167,7 @@
 
   &::before,
   &::after {
-    content: '';
+    content: "";
     position: absolute;
     top: -4.5px;
     border: 5px solid transparent;
@@ -181,4 +181,33 @@
     right: 0;
     border-right-color: var(--border);
   }
+}
+
+.drag-handle {
+  position: absolute;
+  cursor: grab;
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #888;
+  background: transparent;
+  border-radius: 4px;
+  user-select: none;
+  font-size: 16px;
+  opacity: 0.4;
+  transition:
+    opacity 0.15s ease,
+    background 0.15s ease;
+}
+
+.drag-handle:hover {
+  opacity: 1;
+  background: rgba(0, 0, 0, 0.08);
+  color: #333;
+}
+
+.drag-handle:active {
+  cursor: grabbing;
 }
