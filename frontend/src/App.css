@@ -1,0 +1,260 @@
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap");
+
+:root {
+  --bg: #0f1115;
+  --surface: #17191f;
+  --surface-2: #1e2129;
+  --border: #2a2d36;
+  --border-hover: #3a3e4a;
+  --text: #eceef2;
+  --text-muted: #9298a5;
+  --accent: #6c8dff;
+  --accent-soft: rgba(108, 141, 255, 0.15);
+  --radius: 12px;
+  --shadow: 0 8px 30px rgba(0, 0, 0, 0.35);
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: "Inter", system-ui, sans-serif;
+}
+
+.page {
+  min-height: 100vh;
+  display: flex;
+  justify-content: center;
+  padding: 60px 20px;
+}
+
+.editor-shell {
+  width: 100%;
+  max-width: 760px;
+  animation: fadeInUp 0.5s ease both;
+}
+
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.editor-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+}
+
+.editor-header h1 {
+  font-size: 26px;
+  font-weight: 800;
+  margin: 0;
+  letter-spacing: -0.02em;
+  white-space: nowrap;
+}
+
+.badge {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent);
+  background: var(--accent-soft);
+  padding: 4px 10px;
+  border-radius: 999px;
+  letter-spacing: 0.02em;
+}
+
+/* Sync status */
+.sync-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  color: var(--text-muted);
+  margin-left: auto;
+}
+
+.sync-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  transition: background 0.2s ease;
+}
+
+.sync-syncing .sync-dot {
+  background: #e0b341;
+  animation: pulse 1s ease-in-out infinite;
+}
+
+.sync-synced .sync-dot {
+  background: #4ade80;
+}
+
+.sync-offline .sync-dot,
+.sync-error .sync-dot {
+  background: #f87171;
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.5;
+    transform: scale(0.8);
+  }
+}
+
+/* Toolbar */
+.toolbar {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+  padding: 8px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.toolbar-group {
+  display: flex;
+  gap: 2px;
+  padding-right: 6px;
+  border-right: 1px solid var(--border);
+}
+
+.toolbar-group:last-child {
+  border-right: none;
+  padding-right: 0;
+}
+
+.toolbar-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  border-radius: 8px;
+  cursor: pointer;
+  transition:
+    background 0.15s ease,
+    color 0.15s ease,
+    transform 0.1s ease;
+}
+
+.toolbar-btn:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.toolbar-btn:active {
+  transform: scale(0.92);
+}
+
+.toolbar-btn.active {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+/* Editor surface */
+.editor-surface {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 24px 28px;
+  min-height: 320px;
+  box-shadow: var(--shadow);
+  transition: border-color 0.2s ease;
+}
+
+.editor-surface:focus-within {
+  border-color: var(--accent);
+}
+
+.ProseMirror {
+  outline: none;
+  line-height: 1.7;
+  font-size: 15.5px;
+}
+
+.ProseMirror p {
+  margin: 0 0 12px;
+}
+
+.ProseMirror h1 {
+  font-size: 28px;
+  font-weight: 800;
+  margin: 20px 0 10px;
+}
+
+.ProseMirror h2 {
+  font-size: 22px;
+  font-weight: 700;
+  margin: 16px 0 8px;
+}
+
+.ProseMirror ul,
+.ProseMirror ol {
+  padding-left: 24px;
+  margin: 0 0 12px;
+}
+
+.ProseMirror li {
+  margin-bottom: 4px;
+  transition: background 0.15s ease;
+  border-radius: 4px;
+}
+
+.ProseMirror p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  color: var(--text-muted);
+  float: left;
+  pointer-events: none;
+  height: 0;
+}
+
+/* Drag handle */
+.drag-handle {
+  position: absolute;
+  cursor: grab;
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  background: transparent;
+  border-radius: 4px;
+  user-select: none;
+  font-size: 16px;
+  opacity: 0.35;
+  transition:
+    opacity 0.15s ease,
+    background 0.15s ease,
+    transform 0.15s ease;
+}
+
+.drag-handle:hover {
+  opacity: 1;
+  background: var(--surface-2);
+  color: var(--text);
+  transform: scale(1.1);
+}
+
+.drag-handle:active {
+  cursor: grabbing;
+  transform: scale(1.15);
+}
