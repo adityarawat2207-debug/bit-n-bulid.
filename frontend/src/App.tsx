@@ -32,18 +32,16 @@ function App() {
   });
 
   return (
-    <div style={{ maxWidth: "700px", margin: "40px auto", padding: "20px" }}>
-      <h2>Document Editor — Role 1 Test</h2>
-      <Toolbar editor={editor} />
-      <div
-        style={{
-          border: "1px solid #ccc",
-          borderRadius: "8px",
-          padding: "16px",
-          minHeight: "300px",
-        }}
-      >
-        <EditorContent editor={editor} />
+    <div className="page">
+      <div className="editor-shell">
+        <header className="editor-header">
+          <h1>Document Editor</h1>
+          <span className="badge">Role 1 — Frontend</span>
+        </header>
+        <Toolbar editor={editor} />
+        <div className="editor-surface">
+          <EditorContent editor={editor} />
+        </div>
       </div>
     </div>
   );
