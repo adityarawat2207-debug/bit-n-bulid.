@@ -1,5 +1,6 @@
 import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
+import Toolbar from "./Toolbar";
 import "./App.css";
 
 function App() {
@@ -11,6 +12,7 @@ function App() {
   return (
     <div style={{ maxWidth: "700px", margin: "40px auto", padding: "20px" }}>
       <h2>Document Editor — Role 1 Test</h2>
+      <Toolbar editor={editor} />
       <div
         style={{
           border: "1px solid #ccc",
