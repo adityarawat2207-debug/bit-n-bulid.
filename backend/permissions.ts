@@ -1,9 +1,11 @@
 /**
- * ROLE 3: Permissions Interface
- * 
+ * ROLE 3: Permissions Interface (Supabase-backed)
+ *
  * Provides: checkPermission(userId, documentId, blockId?, action?)
  * Consumed by: Role 2 (Sync Engine) as the pre-op gate in handleIncomingOp(op)
  */
+
+import { supabase } from '../supabaseClient.js';
 
 export interface PermissionCheckResult {
   allowed: boolean;
@@ -11,23 +13,22 @@ export interface PermissionCheckResult {
   reason?: string;
 }
 
-// In-memory role lookup table for user permissions
-const USER_ROLE_REGISTRY: Record<string, { role: string; name: string }> = {
-  'user-alice': { role: 'admin', name: 'Alice (Lead)' },
-  'alice': { role: 'admin', name: 'Alice (Lead)' },
-  'user-bob': { role: 'editor', name: 'Bob (Architect)' },
-  'bob': { role: 'editor', name: 'Bob (Architect)' },
-  'user-charlie': { role: 'legal', name: 'Charlie (Legal)' },
-  'charlie': { role: 'legal', name: 'Charlie (Legal)' },
-  'user-dana': { role: 'viewer', name: 'Dana (Reviewer)' },
-  'dana': { role: 'viewer', name: 'Dana (Reviewer)' }
+// Which actions each role is allowed to perform
+const ROLE_PERMISSIONS: Record<string, string[]> = {
+  editor: ['insert', 'delete', 'update', 'format', 'RESTORE_VERSION'],
+  viewer: ['comment']
 };
+
+function isActionAllowed(role: string, action?: string): boolean {
+  if (!action) return true; // no specific action given, defer to allowed flag from role lookup
+  const allowedActions = ROLE_PERMISSIONS[role] || [];
+  return allowedActions.includes(action);
+}
 
 /**
  * CONTRACT METHOD: checkPermission(userId, documentId, blockId?, action?)
- * 
- * Matches Role 3's exact contract signature:
- * const { allowed, role } = await checkPermission(op.userId, op.documentId)
+ * Same signature Role 2 already calls — internals now hit Supabase instead
+ * of the hardcoded registry.
  */
 export async function checkPermission(
   userOrId: string | { id: string; role?: string },
@@ -36,51 +37,48 @@ export async function checkPermission(
   action?: string
 ): Promise<PermissionCheckResult> {
   const userId = typeof userOrId === 'object' ? userOrId.id : userOrId;
-  const user = USER_ROLE_REGISTRY[userId] || (
-    typeof userOrId === 'object' && userOrId.role ? { role: userOrId.role, name: userId } : { role: 'editor', name: 'User' }
-  );
-  const role = user.role;
+  const documentId = typeof docOrId === 'object' ? docOrId.id : docOrId;
 
-  // Viewers are read-only: state mutation is not allowed
-  if (role === 'viewer') {
-    return {
-      allowed: false,
-      role,
-      reason: 'permission-denied: viewer has read-only access'
-    };
+  if (!userId || !documentId) {
+    return { allowed: false, role: 'none', reason: 'permission-denied: missing userId or documentId' };
   }
 
-  // Admins have unrestricted access
-  if (role === 'admin') {
-    return {
-      allowed: true,
-      role
-    };
+  let role: string | null = null;
+
+  // 1. Block-specific permission takes priority, if a blockId was given
+  if (blockId) {
+    const { data: blockPerm } = await supabase
+      .from('permissions')
+      .select('role')
+      .eq('user_id', userId)
+      .eq('document_id', documentId)
+      .eq('block_id', blockId)
+      .maybeSingle();
+
+    if (blockPerm) role = blockPerm.role;
   }
 
-  // Administrative actions strictly require admin privileges
-  const adminOnlyActions = ['SECTION_LOCK', 'SECTION_PERMISSIONS_UPDATE', 'SECTION_DELETE', 'RESTORE_VERSION'];
-  if (action && adminOnlyActions.includes(action)) {
-    return {
-      allowed: false,
-      role,
-      reason: `permission-denied: action ${action} requires admin privileges`
-    };
+  // 2. Fall back to document-level permission (block_id is null)
+  if (!role) {
+    const { data: docPerm } = await supabase
+      .from('permissions')
+      .select('role')
+      .eq('user_id', userId)
+      .eq('document_id', documentId)
+      .is('block_id', null)
+      .maybeSingle();
+
+    if (docPerm) role = docPerm.role;
   }
 
-  // Check section-level restrictions if block belongs to restricted section
-  if (blockId === 'blk-5' || blockId?.includes('legal')) {
-    if (role !== 'admin' && role !== 'legal') {
-      return {
-        allowed: false,
-        role,
-        reason: 'permission-denied: block is restricted to legal specialists'
-      };
-    }
+  if (!role) {
+    return { allowed: false, role: 'none', reason: 'permission-denied: no access record for this user/document' };
   }
 
+  const allowed = isActionAllowed(role, action);
   return {
-    allowed: true,
-    role
+    allowed,
+    role,
+    reason: allowed ? undefined : `permission-denied: role '${role}' cannot perform action '${action}'`
   };
 }
