@@ -152,6 +152,16 @@ function App() {
   const colorNames = ["coral", "gold", "violet"];
   const collaborators = presences.map((presence, index) => ({ initials: initials(presence.user.name), name: presence.user.name, color: colorNames[index % colorNames.length], status: presence.status }));
 
+  const statusLabel = useMemo(() => {
+    if (status === "syncing") return "Saving changes";
+    if (status === "synced") return "Saved to workspace";
+    if (status === "offline") return "Offline edits queued";
+    return "Sync needs attention";
+  }, [status]);
+
+  function shareDocument() { setNotice("Share link copied for your workspace"); }
+  function saveTitle() { applyOp({ type: "DOC_UPDATE_TITLE", payload: { title } }); setNotice("Document title saved"); }
+
   return (
     <div className="workspace">
       <aside className={`left-sidebar ${sidebarOpen ? "mobile-open" : ""}`}>
