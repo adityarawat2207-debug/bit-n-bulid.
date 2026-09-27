@@ -35,7 +35,7 @@ export const BlockId = Extension.create({
         return [
             new Plugin({
                 key: new PluginKey('blockIdAssigner'),
-                appendTransaction: (transactions, oldState, newState) => {
+                appendTransaction: (transactions, _oldState, newState) => {
                     const docChanged = transactions.some((tr) => tr.docChanged)
                     if (!docChanged) return null
 
