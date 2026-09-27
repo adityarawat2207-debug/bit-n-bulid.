@@ -6,22 +6,32 @@ import type { Editor } from "@tiptap/react";
 import { Bell, ChevronDown, ChevronRight, CircleHelp, Clock3, Cloud, FileText, History, LayoutPanelLeft, ListChecks, Menu, MessageSquare, MoreHorizontal, PanelRightOpen, Plus, Search, Sparkles, Users, X } from "lucide-react";
 import Toolbar from "./Toolbar";
 import { BlockId } from "./sync/blockId";
-import { applyOp, subscribeToChanges, type SyncStatus } from "./sync/mockSyncEngine";
+import { applyOp, connectSync, disconnectSync, subscribeToChanges, subscribeToDocument, subscribeToErrors, subscribeToPresence, type Presence, type SyncDocument, type SyncStatus } from "./sync/syncClient";
 import "./App.css";
 
-const INITIAL_DOCUMENT = `<h1>Product launch brief</h1><p>Align the release story, launch scope, and owners before the September rollout.</p><h2>What we are shipping</h2><p>The first collaborative release lets a team draft, review, and keep a shared document in sync even when connections are unreliable.</p><ul><li>Real-time cursors and presence for active collaborators</li><li>Offline edits that reconcile safely after reconnecting</li><li>Version checkpoints with clear authorship</li></ul><h2>Launch checklist</h2><ol><li>Confirm copy and product screenshots</li><li>Review access rules with legal</li><li>Publish the release notes</li></ol>`;
+function escapeHtml(value: string) {
+  return value.replace(/[&<>'"]/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" })[character] ?? character);
+}
 
-const collaborators = [
-  { initials: "AC", name: "Aarush Choubey", color: "coral", status: "Editing" },
-  { initials: "MS", name: "Maya Shah", color: "gold", status: "Reviewing" },
-  { initials: "JP", name: "Jon Park", color: "violet", status: "Online" },
-];
+function documentToHtml(document: SyncDocument) {
+  const sections = [...document.sections].sort((a, b) => a.order.localeCompare(b.order));
+  return sections.map((section) => {
+    const blocks = document.blocks.filter((block) => block.sectionId === section.id && !block.isDeleted).sort((a, b) => a.order.localeCompare(b.order));
+    const blockHtml = blocks.map((block) => {
+      const content = escapeHtml(block.content).replace(/\n/g, "<br />");
+      if (block.type === "heading1") return `<h1 data-block-id="${block.id}">${content}</h1>`;
+      if (block.type === "heading2") return `<h2 data-block-id="${block.id}">${content}</h2>`;
+      if (block.type === "quote") return `<blockquote data-block-id="${block.id}">${content}</blockquote>`;
+      if (block.type === "code") return `<pre data-block-id="${block.id}"><code>${content}</code></pre>`;
+      return `<p data-block-id="${block.id}">${content}</p>`;
+    }).join("");
+    return `<h2>${escapeHtml(section.title)}</h2>${blockHtml}`;
+  }).join("");
+}
 
-const activity = [
-  { initials: "MS", color: "gold", text: "Maya revised the launch checklist", time: "2 min" },
-  { initials: "JP", color: "violet", text: "Jon added a version checkpoint", time: "18 min" },
-  { initials: "AC", color: "coral", text: "You updated the release summary", time: "42 min" },
-];
+function initials(name: string) {
+  return name.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join("").toUpperCase();
+}
 
 function getCurrentBlock(editor: Editor) {
   const { $from } = editor.state.selection;
@@ -34,18 +44,22 @@ function getCurrentBlock(editor: Editor) {
 
 function App() {
   const [status, setStatus] = useState<SyncStatus>("synced");
-  const [title, setTitle] = useState("Product launch brief");
+  const [title, setTitle] = useState("Loading document");
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(true);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [notice, setNotice] = useState("All changes are saved locally");
   const [wordCount, setWordCount] = useState(0);
+  const [liveDocument, setLiveDocument] = useState<SyncDocument | null>(null);
+  const [presences, setPresences] = useState<Presence[]>([]);
   const baseContentRef = useRef<Map<string, string>>(new Map());
   const debounceTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
 
   function sendOperation(blockId: string, content: string) {
     const baseContent = baseContentRef.current.get(blockId) ?? "";
-    applyOp({ type: "BLOCK_UPDATE_TEXT", blockId, baseContent, payload: { content } }).then(() => setNotice("All changes are saved locally"));
+    applyOp({ type: "BLOCK_UPDATE_TEXT", blockId, baseContent, payload: { content } })
+      .then(() => setNotice("Change sent to the sync server"))
+      .catch((error: unknown) => setNotice(error instanceof Error ? error.message : "Could not save this change"));
     baseContentRef.current.set(blockId, content);
   }
 
@@ -84,7 +98,7 @@ function App() {
         nested: { allowedContainers: ["bulletList", "orderedList"], edgeDetection: "left" },
       }),
     ],
-    content: INITIAL_DOCUMENT,
+    content: "",
     onCreate: ({ editor: instance }) => setWordCount(instance.getText().trim().split(/\s+/).filter(Boolean).length),
     onUpdate: ({ editor: instance }) => {
       setWordCount(instance.getText().trim().split(/\s+/).filter(Boolean).length);
@@ -104,12 +118,39 @@ function App() {
 
   useEffect(() => {
     const unsubscribe = subscribeToChanges(setStatus);
+    const unsubscribeDocument = subscribeToDocument((nextDocument) => {
+      setLiveDocument(nextDocument);
+      setTitle(nextDocument.title);
+      editor?.commands.setContent(documentToHtml(nextDocument), { emitUpdate: false });
+      setWordCount(nextDocument.blocks.filter((block) => !block.isDeleted).flatMap((block) => block.content.split(/\s+/)).filter(Boolean).length);
+      setNotice("Live document loaded from the sync server");
+    });
+    const unsubscribePresence = subscribeToPresence(setPresences);
+    const unsubscribeErrors = subscribeToErrors(setNotice);
     const timers = debounceTimersRef.current;
+    connectSync();
     return () => {
       unsubscribe();
+      unsubscribeDocument();
+      unsubscribePresence();
+      unsubscribeErrors();
+      disconnectSync();
       timers.forEach((timer) => clearTimeout(timer));
     };
-  }, []);
+  }, [editor]);
+
+  const statusLabel = useMemo(() => {
+    if (status === "connecting") return "Connecting to sync server";
+    if (status === "syncing") return "Saving changes";
+    if (status === "synced") return "Saved to workspace";
+    if (status === "offline") return "Offline edits queued";
+    return "Sync needs attention";
+  }, [status]);
+
+  function shareDocument() { setNotice("Sharing is managed by the workspace access policy"); }
+  function saveTitle() { applyOp({ type: "DOC_UPDATE_TITLE", payload: { title } }).catch((error: unknown) => setNotice(error instanceof Error ? error.message : "Could not save the title")); }
+  const colorNames = ["coral", "gold", "violet"];
+  const collaborators = presences.map((presence, index) => ({ initials: initials(presence.user.name), name: presence.user.name, color: colorNames[index % colorNames.length], status: presence.status }));
 
   const statusLabel = useMemo(() => {
     if (status === "syncing") return "Saving changes";
@@ -143,8 +184,8 @@ function App() {
       <main className="workspace-main">
         <header className="top-header"><div className="header-left"><button type="button" className="mobile-menu-button" onClick={() => setSidebarOpen(true)} aria-label="Open navigation"><Menu size={19} /></button><div className="breadcrumb"><span>Product</span><ChevronRight size={14} /><strong>Launch</strong></div></div><div className="header-actions"><button type="button" className="icon-button" title="Search" aria-label="Search"><Search size={18} /></button><button type="button" className="icon-button" title="Notifications" aria-label="Notifications"><Bell size={18} /><span className="notification-dot" /></button><button type="button" className="avatar-button" aria-label="Account menu"><span className="avatar coral">AC</span><ChevronDown size={14} /></button></div></header>
         <section className="document-bar"><div className="document-title-wrap"><button type="button" className="document-icon" aria-label="Document options"><FileText size={18} /></button><input aria-label="Document title" value={title} onChange={(event) => setTitle(event.target.value)} onBlur={saveTitle} /><span className={`sync-state ${status}`}><Cloud size={14} /> {statusLabel}</span></div><div className="document-actions"><div className="presence-stack" title="3 collaborators online">{collaborators.map((person) => <span className={`avatar ${person.color}`} key={person.initials}>{person.initials}</span>)}</div><button type="button" className="share-button" onClick={shareDocument}>Share</button><button type="button" className="icon-button" title="More document options" aria-label="More document options"><MoreHorizontal size={18} /></button></div></section>
-        <section className="editor-layout"><div className="editor-column"><Toolbar editor={editor} /><article className="editor-surface"><EditorContent editor={editor} /></article><footer className="editor-footer"><span>{wordCount} words</span><span>{notice}</span><span>Last activity just now</span></footer></div>
-          {detailsOpen && <aside className="details-panel"><div className="details-header"><div><p className="eyebrow">Document</p><h2>Team context</h2></div><button type="button" className="icon-button compact" onClick={() => setDetailsOpen(false)} title="Hide details" aria-label="Hide details"><PanelRightOpen size={16} /></button></div><div className="details-section"><div className="section-title"><span>Collaborators</span><button type="button" onClick={shareDocument}>Invite</button></div><div className="collaborator-list">{collaborators.map((person) => <div className="collaborator" key={person.initials}><span className={`avatar ${person.color}`}>{person.initials}</span><span><strong>{person.name}</strong><small>{person.status}</small></span><span className="online-dot" /></div>)}</div></div><div className="details-section"><div className="section-title"><span>Outline</span><button type="button" aria-label="Outline options"><MoreHorizontal size={15} /></button></div><div className="outline-list"><button type="button" className="current">Product launch brief</button><button type="button">What we are shipping</button><button type="button">Launch checklist</button></div></div><div className="details-section activity-section"><div className="section-title"><span>Recent activity</span><button type="button" onClick={() => setHistoryOpen(true)}>View all</button></div>{activity.map((item) => <div className="activity-row" key={item.text}><span className={`avatar ${item.color}`}>{item.initials}</span><p>{item.text}<time>{item.time} ago</time></p></div>)}</div><button type="button" className="history-cta" onClick={() => setHistoryOpen(true)}><History size={16} /> Version history <ChevronRight size={15} /></button></aside>}
+        <section className="editor-layout"><div className="editor-column"><Toolbar editor={editor} /><article className="editor-surface"><EditorContent editor={editor} /></article><footer className="editor-footer"><span>{wordCount} words</span><span>{notice}</span><span>Version {liveDocument?.version ?? "-"}</span></footer></div>
+          {detailsOpen && <aside className="details-panel"><div className="details-header"><div><p className="eyebrow">Document</p><h2>Team context</h2></div><button type="button" className="icon-button compact" onClick={() => setDetailsOpen(false)} title="Hide details" aria-label="Hide details"><PanelRightOpen size={16} /></button></div><div className="details-section"><div className="section-title"><span>Collaborators</span><button type="button" onClick={shareDocument}>Access</button></div><div className="collaborator-list">{collaborators.map((person) => <div className="collaborator" key={person.initials}><span className={`avatar ${person.color}`}>{person.initials}</span><span><strong>{person.name}</strong><small>{person.status}</small></span><span className="online-dot" /></div>)}</div></div><div className="details-section"><div className="section-title"><span>Outline</span><button type="button" aria-label="Outline options"><MoreHorizontal size={15} /></button></div><div className="outline-list">{liveDocument?.sections.slice().sort((a, b) => a.order.localeCompare(b.order)).map((section, index) => <button type="button" className={index === 0 ? "current" : ""} key={section.id}>{section.title}</button>)}</div></div><div className="details-section activity-section"><div className="section-title"><span>Sync status</span><button type="button" onClick={() => setHistoryOpen(true)}>Details</button></div><div className="activity-row"><span className="avatar coral">{liveDocument?.version ?? "-"}</span><p>{statusLabel}<time>{notice}</time></p></div></div><button type="button" className="history-cta" onClick={() => setHistoryOpen(true)}><History size={16} /> Version history <ChevronRight size={15} /></button></aside>}
           {!detailsOpen && <button type="button" className="show-details" onClick={() => setDetailsOpen(true)} title="Show document details" aria-label="Show document details"><LayoutPanelLeft size={18} /></button>}
         </section>
       </main>
