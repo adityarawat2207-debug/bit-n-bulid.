@@ -28,7 +28,7 @@ export interface Operation {
   blockId?: string
   sectionId?: string
   baseContent?: string
-  payload: any
+  payload: unknown
   author: {
     id: string
     name: string
